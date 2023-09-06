@@ -171,7 +171,7 @@ class OFDMradar:
             window_matrix, main_lobe_normalized = self.window_generator(received_frame)
             received_frame = np.multiply(received_frame, window_matrix)
         else:
-            main_lobe_normalized = [2/self.n, 2/self.m]
+            main_lobe_normalized = [2.0/self.n, 2.0/self.m]
 
         Cper = np.fft.fft(received_frame, n=int(M_symbols), axis=1) / np.sqrt(M_symbols)
         Cper = np.fft.ifft(Cper, n=int(N_subcarriers), axis=0) * np.sqrt(N_subcarriers)

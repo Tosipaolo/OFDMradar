@@ -29,6 +29,7 @@ Ts = T + Tcp # total sym_duration
 
 SNR_F_dB = 15
 SNR = 10 ** (SNR_F_dB / 10)
+noise_variance = 1/SNR
 
 # CFAR Params
 prob_false_alarm = 0.001
@@ -52,7 +53,7 @@ print("\t N_subcarriers: ", N_subcarriers, "\n\t N_guard: ", N_guard, "\n\t M_sy
 print(f"\t Detection Ranges: (according to OFDM assumptions):\n\t Max_target_range: {max_target_range} \n\t Max_target_velocity: {max_target_velocity} \n")
 
 # Target definition
-H = 1
+H = 3
 target_list = []
 
 for i in range(H):
@@ -111,9 +112,9 @@ periodgram, main_lobes_normalized = ofdm.periodgram(frx_norm, windowing=False)
 
 #max_position_naive = targetDetector.get_naive_maximum(periodgram_windowed, interpolation=False)
 
-max_position_naive, target_estimates = targetDetector.get_naive_maximum(periodgram, interpolation=False, print_estimate=False)
+# max_position_naive, target_estimates = targetDetector.get_naive_maximum(periodgram, interpolation=False, print_estimate=False)
 
-targetlist = targetDetector.estimation_successive_canc(periodgram, prob_false_alarm, max_target_range, main_lobes_normalized)
+targetlist, binary_map = targetDetector.estimation_successive_canc(periodgram, prob_false_alarm, max_target_range, main_lobes_normalized)
 
 ''' CHECK FOR SUCCESSIVE CANCELLATION, TO BE REMOVED
 Nwin = main_lobes_normalized[0]*N_per
@@ -130,6 +131,7 @@ ofdm.plot_periodgram(ellipsis_function)
 
 # ofdm.plot_periodgram(periodgram, interpolation=True)
 ofdm.plot_periodgram(periodgram)
+ofdm.plot_periodgram(binary_map)
 # ofdm.plot_periodgram(periodgram_difference)
 
 plt.show()

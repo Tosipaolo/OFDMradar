@@ -3,8 +3,45 @@ import numpy as np
 import scipy.signal.windows as windows
 
 
-def successive_cancellation(x, window_len=100, window='hanning'):
-    return
+def successive_cancellation(periodgram, main_lobes, threshold):
+    print("--------------------------------")
+    print("Starting SUCCESSIVE CANCELLATION:")
+
+    (n_per, m_per) = periodgram.shape
+    
+    target_list = []
+    
+    submatrix_size = main_lobes * 2
+
+    binary_map = np.ones(periodgram.shape)
+
+    max_bin = periodgram.argmax()
+
+    while max_bin > threshold:
+        max_bin_position = np.unravel_index(periodgram.argmax(), periodgram.shape)
+
+        # Calculate the indices for the submatrix
+        start_row = int(max(0, max_bin_position[0] - submatrix_size[0] // 2))
+        end_row = int(min(n_per, max_bin_position[0] + submatrix_size[0] // 2 + 1))
+        start_col = int(max(0, max_bin_position[1] - submatrix_size[1] // 2))
+        end_col = int(min(m_per, max_bin_position[1] + submatrix_size[1] // 2 + 1))
+
+        # Extract the submatrix from the periodogram
+        for i in range(start_row, end_row):
+            for j in range(start_col, end_col):
+                binary_map[i, j] = 1 if ((i - max_bin_position[0]) ** 2 / (main_lobes[0] / 2) ** 2) + (
+                            (j - max_bin_position[1]) ** 2 / (main_lobes[1] / 2) ** 2) >= 1 else 0
+
+        target_list.append(max_bin_position)
+
+        # find the successive max value, given that it's corresponding bin in the binary matrix is set to 1
+        valid_bins = np.argwhere(binary_map[periodgram.shape[0], periodgram.shape[1]] == 1)
+        print("valid bins: ", valid_bins)
+        max_bin = max(periodgram[valid_bins])
+
+    print(F"FINISH SUCCESSIVE CANCELLATION, TARGET FOUND: {len(target_list)}")
+
+    return target_list, binary_map
 
 
 class TargetDetector(object):
@@ -22,6 +59,7 @@ class TargetDetector(object):
         ts: float = self.Tsym
 
         max_position = np.unravel_index(periodgram.argmax(), periodgram.shape)
+        print(f"max position is: {max_position}")
 
         if interpolation:
             max_position = self.interpolate_local_maximum(periodgram, max_position, interp_type='linear')
@@ -77,28 +115,12 @@ class TargetDetector(object):
         # noise_variance = 1 / SNR
         # print(f"Noise variance is: {noise_variance}")
 
-        binary_map = np.ones(periodgram.shape)
-
-        threshold = - noise_variance_est * np.log(1 - (1 - false_alarm_prob) ** (1 / (n_per * m_per)))
+        threshold = - noise_variance_est * np.log(1 - (1 - false_alarm_prob) ** (1 / (n_per/8 * m_per/8)))
         print(f"Threshold is: {threshold}")
 
         main_lobes = [main_lobes_norm[0] * n_per, main_lobes_norm[1] * m_per]
         print(f"Main lobes are: {main_lobes}")
 
-        print("--------------------------------")
-        print("Starting SUCCESSIVE CANCELLATION:")
+        target_list = successive_cancellation(periodgram, main_lobes, threshold)
 
-        submatrix_size = main_lobes * 2
-
-        max_bin = periodgram.argmax()
-
-        # Calculate the indices for the submatrix
-        start_row = max(0, - submatrix_size[0] // 2)
-        end_row = min(N, n + submatrix_size[0] // 2 + 1)
-        start_col = max(0, m - submatrix_size[1] // 2)
-        end_col = min(M, m + submatrix_size[1] // 2 + 1)
-
-        # Extract the submatrix from the periodogram
-        submatrix = matrix[start_row:end_row, start_col:end_col]
-
-        return 1
+        return target_list
