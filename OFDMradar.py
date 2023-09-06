@@ -95,7 +95,7 @@ class OFDMradar:
     def window_generator(self, received_frame):
         print("---------------WINDOWING-----------------")
 
-        sidelobe_attenuation = 65
+        sidelobe_attenuation = 100
 
         single_window_matrix_n = windows.chebwin(self.n, sidelobe_attenuation)
         win_normalization_n = (1 / self.n) * np.sum(single_window_matrix_n ** 2)
@@ -114,10 +114,24 @@ class OFDMradar:
         # check_win_2d_normalization = (1 / (self.N * self.N)) * np.sum(window_matrix ** 2)
         # print(f"normalization of 2D window matrix is: {check_win_2d_normalization}")
 
+        main_lobe_width_n = (1.46*np.pi*(np.log10(2)+sidelobe_attenuation/20))/(self.n-1)
+        main_lobe_width_n = np.ceil(self.n*main_lobe_width_n)
+        print(f"main lobe width in n is: {main_lobe_width_n}")
+
+        main_lobe_width_m = (1.46*(np.log10(2)+sidelobe_attenuation/20))/(self.m-1)
+        main_lobe_width_m = np.ceil(self.m*main_lobe_width_m)
+        print(f"main lobe width in m is: {main_lobe_width_m}")
+
+        main_lobe_width = lambda x: (1.46 * (np.log10(2) + sidelobe_attenuation / 20)) / (x - 1)
+        main_lobe_normalized = [ main_lobe_width(self.n), main_lobe_width(self.m)]
+        print(f"main lobe dimensions are: {main_lobe_normalized}")
+
         if test_window:
             plt.figure(figsize=(20, 20))
-            X = np.linspace(0, self.n, self.n)
-            plt.plot(X, 10 * np.log10(single_window_matrix_n))
+            plt.plot(single_window_matrix_n)
+
+            plt.figure(figsize=(20, 20))
+            plt.plot(20*np.log10((np.abs(np.fft.fftshift(np.fft.fft(single_window_matrix_n, self.n))))))
 
             check_win_m_normalization = (1 / self.m) * np.sum(single_window_matrix_m ** 2)
             print(f"normalization of M window matrix is: {check_win_m_normalization}")
@@ -143,7 +157,7 @@ class OFDMradar:
             print(f"SNR_loss_M DUE TO WINDOWING: {SNR_loss_m}")
             print(f"TOTAL SNR_loss is: {SNR_loss_n + SNR_loss_m}")
 
-        return window_matrix
+        return window_matrix, main_lobe_normalized
 
     def periodgram(self, received_fx, windowing: bool = False):
         N_subcarriers = self.n * self.upsample_factor
@@ -154,8 +168,10 @@ class OFDMradar:
         # print(f"received_frame BEFORE WINDOWING{received_frame}")
 
         if windowing:
-            window_matrix = self.window_generator(received_frame)
+            window_matrix, main_lobe_normalized = self.window_generator(received_frame)
             received_frame = np.multiply(received_frame, window_matrix)
+        else:
+            main_lobe_normalized = [2/self.n, 2/self.m]
 
         Cper = np.fft.fft(received_frame, n=int(M_symbols), axis=1) / np.sqrt(M_symbols)
         Cper = np.fft.ifft(Cper, n=int(N_subcarriers), axis=0) * np.sqrt(N_subcarriers)
@@ -171,7 +187,7 @@ class OFDMradar:
         else:
             print(f"Max is: {max_periodgram}")
         '''
-        return Per
+        return Per, main_lobe_normalized
 
     def plot_periodgram(self, periodgram):
         N_per = self.n * self.upsample_factor
@@ -182,9 +198,9 @@ class OFDMradar:
 
         fig = plt.figure(figsize=(20, 20))
         Y = np.linspace(0, N_per, N_per)
-        Y = np.multiply(Y, (lightspeed / (2 * self.deltaf * N_per)))
+        # Y = np.multiply(Y, (lightspeed / (2 * self.deltaf * N_per)))
         X = np.linspace(-M_per / 2, M_per / 2, M_per)
-        X = np.multiply(X, (lightspeed / (2 * carrier_freq * self.Tsym * M_per)))
+        #X = np.multiply(X, (lightspeed / (2 * carrier_freq * self.Tsym * M_per)))
         plt.pcolormesh(X, Y, periodgram, cmap='viridis')
         plt.colorbar()
         plt.xlabel('Relative Speed')

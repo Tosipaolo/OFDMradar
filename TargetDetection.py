@@ -3,6 +3,10 @@ import numpy as np
 import scipy.signal.windows as windows
 
 
+def successive_cancellation(x, window_len=100, window='hanning'):
+    return
+
+
 class TargetDetector(object):
     def __init__(self, n_per, m_per, deltaf, Tsym, carrier_freq):
         self.n_per = n_per
@@ -11,7 +15,7 @@ class TargetDetector(object):
         self.Tsym = Tsym
         self.carrier_freq = carrier_freq
 
-    def get_naive_maximum(self, periodgram, interpolation: bool = False):
+    def get_naive_maximum(self, periodgram, interpolation: bool = False, print_estimate: bool = False):
         lightspeed = 3e8
         carrier_freq: float = 28e9
         delta_f: float = self.deltaf
@@ -20,23 +24,18 @@ class TargetDetector(object):
         max_position = np.unravel_index(periodgram.argmax(), periodgram.shape)
 
         if interpolation:
-
             max_position = self.interpolate_local_maximum(periodgram, max_position, interp_type='linear')
 
-        else:
-            print()
-
-        print("max position is: ", max_position)
-
+        max_position = self.interpolate_local_maximum(periodgram, max_position, interp_type='nearest')
         estimated_distance = max_position[0] * lightspeed / (2 * delta_f * self.n_per)
-
-        print("Estimated distance is: ", estimated_distance, "\n")
-
         estimated_speed = (max_position[1] - self.m_per / 2) * lightspeed / (2 * carrier_freq * ts * self.m_per)
 
-        print("Estimated speed is: ", estimated_speed, "\n")
+        if print_estimate:
+            print("max position is: ", max_position)
+            print("Estimated distance is: ", estimated_distance, "\n")
+            print("Estimated speed is: ", estimated_speed, "\n")
 
-        return max_position
+        return max_position, [estimated_distance, estimated_speed]
 
     def interpolate_local_maximum(self, periodgram, max_coords, interp_type='linear'):
 
@@ -61,30 +60,45 @@ class TargetDetector(object):
         max_position_interpolated = (interpolated_n, interpolated_m)
         return max_position_interpolated
 
-    def estimation_successive_canc(self, periodgram, SNR, target_probability, d_max):
+    def estimation_successive_canc(self, periodgram, false_alarm_prob, max_distance, main_lobes_norm):
         print("CFAR--------------------------------")
         (n_per, m_per) = periodgram.shape
 
-        n_max = int(np.ceil((d_max/3e8) * 2 * self.deltaf * self.n_per))
+        n_max = int(np.ceil((max_distance / 3e8) * 2 * self.deltaf * self.n_per))
+        # k = 3
 
-        k = 3
+        noise_periodgram = periodgram[n_per - 4:, :]
 
-        noise_periodgram = periodgram[n_per-4:, :]
-
+        # calculate noise variance per bin
         noise_variance_est = np.mean(noise_periodgram)
 
-        print(f"Estimated Noise variance is: {noise_variance_est}")
+        # print(f"Estimated Noise variance is: {noise_variance_est}")
 
-        noise_variance = 1 / SNR
-        print(f"Noise variance is: {noise_variance}")
+        # noise_variance = 1 / SNR
+        # print(f"Noise variance is: {noise_variance}")
 
-        binary_map = np.ones((n_per, m_per))
+        binary_map = np.ones(periodgram.shape)
 
+        threshold = - noise_variance_est * np.log(1 - (1 - false_alarm_prob) ** (1 / (n_per * m_per)))
+        print(f"Threshold is: {threshold}")
 
+        main_lobes = [main_lobes_norm[0] * n_per, main_lobes_norm[1] * m_per]
+        print(f"Main lobes are: {main_lobes}")
 
-        threshold = - (noise_variance ** 2) * np.log(target_probability)
+        print("--------------------------------")
+        print("Starting SUCCESSIVE CANCELLATION:")
+
+        submatrix_size = main_lobes * 2
+
+        max_bin = periodgram.argmax()
+
+        # Calculate the indices for the submatrix
+        start_row = max(0, - submatrix_size[0] // 2)
+        end_row = min(N, n + submatrix_size[0] // 2 + 1)
+        start_col = max(0, m - submatrix_size[1] // 2)
+        end_col = min(M, m + submatrix_size[1] // 2 + 1)
+
+        # Extract the submatrix from the periodogram
+        submatrix = matrix[start_row:end_row, start_col:end_col]
 
         return 1
-
-
-

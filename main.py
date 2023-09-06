@@ -13,7 +13,7 @@ lambda_wv = lightspeed / carrier_freq
 N_subcarriers = 512
 M_symbols = 512
 
-expansion_factor = 2
+expansion_factor = 8
 N_per = N_subcarriers * expansion_factor
 M_per = M_symbols * expansion_factor
 
@@ -31,7 +31,7 @@ SNR_F_dB = 15
 SNR = 10 ** (SNR_F_dB / 10)
 
 # CFAR Params
-prob_false_alarm = 0.5
+prob_false_alarm = 0.001
 
 max_unambiguous_range = lightspeed / (2 * delta_f)
 range_resolution = max_unambiguous_range/N_per
@@ -95,7 +95,7 @@ frx_norm = np.divide(received_frame, transmitted_frame)
 
 
 #periodgram_windowed = ofdm.periodgram(frx_norm, windowing=True)
-periodgram = ofdm.periodgram(frx_norm)
+periodgram, main_lobes_normalized = ofdm.periodgram(frx_norm, windowing=False)
 
 # periodgram_shape = np.shape(periodgram)
 
@@ -111,9 +111,22 @@ periodgram = ofdm.periodgram(frx_norm)
 
 #max_position_naive = targetDetector.get_naive_maximum(periodgram_windowed, interpolation=False)
 
-max_position_naive = targetDetector.get_naive_maximum(periodgram, interpolation=False)
+max_position_naive, target_estimates = targetDetector.get_naive_maximum(periodgram, interpolation=False, print_estimate=False)
 
-targetlist = targetDetector.estimation_successive_canc(periodgram, SNR, prob_false_alarm, max_target_range)
+targetlist = targetDetector.estimation_successive_canc(periodgram, prob_false_alarm, max_target_range, main_lobes_normalized)
+
+''' CHECK FOR SUCCESSIVE CANCELLATION, TO BE REMOVED
+Nwin = main_lobes_normalized[0]*N_per
+Mwin = main_lobes_normalized[1]*M_per
+
+ellipsis_function = np.zeros(periodgram.shape)
+
+for i in range(ellipsis_function.shape[0]):
+    for j in range(ellipsis_function.shape[1]):
+        ellipsis_function[i, j] = 1 if ((i-max_position_naive[0])**2/(Nwin/2)**2) + ((j-max_position_naive[1])**2/(Mwin/2)**2) <= 1 else 0
+        
+ofdm.plot_periodgram(ellipsis_function)
+'''
 
 # ofdm.plot_periodgram(periodgram, interpolation=True)
 ofdm.plot_periodgram(periodgram)
