@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy.signal.windows as windows
+import scipy.signal as signal
 
 
 def successive_cancellation(periodgram, main_lobes, threshold):
@@ -8,14 +8,15 @@ def successive_cancellation(periodgram, main_lobes, threshold):
     print("Starting SUCCESSIVE CANCELLATION:")
 
     (n_per, m_per) = periodgram.shape
-    
+
     target_list = []
-    
+
     submatrix_size = main_lobes * 2
 
-    binary_map = np.ones(periodgram.shape)
+    binary_map = periodgram
+    plot_map = np.ones_like(periodgram)
 
-    max_bin = periodgram.argmax()
+    max_bin = np.max(periodgram)
 
     while max_bin > threshold:
         max_bin_position = np.unravel_index(periodgram.argmax(), periodgram.shape)
@@ -29,28 +30,36 @@ def successive_cancellation(periodgram, main_lobes, threshold):
         # Extract the submatrix from the periodogram
         for i in range(start_row, end_row):
             for j in range(start_col, end_col):
-                binary_map[i, j] = 1 if ((i - max_bin_position[0]) ** 2 / (main_lobes[0] / 2) ** 2) + (
-                            (j - max_bin_position[1]) ** 2 / (main_lobes[1] / 2) ** 2) >= 1 else 0
+                if ((i - max_bin_position[0]) ** 2 / (main_lobes[0] / 2) ** 2) + (
+                        (j - max_bin_position[1]) ** 2 / (main_lobes[1] / 2) ** 2) <= 1:
+                    binary_map[i, j] = 0
+                    plot_map[i, j] = 0
 
         target_list.append(max_bin_position)
 
         # find the successive max value, given that it's corresponding bin in the binary matrix is set to 1
-        valid_bins = np.argwhere(binary_map[periodgram.shape[0], periodgram.shape[1]] == 1)
-        print("valid bins: ", valid_bins)
-        max_bin = max(periodgram[valid_bins])
+        max_bin = np.max(binary_map)
 
-    print(F"FINISH SUCCESSIVE CANCELLATION, TARGET FOUND: {len(target_list)}")
+    print(f"FINISH SUCCESSIVE CANCELLATION, TARGET FOUND: {len(target_list)}")
 
-    return target_list, binary_map
+    return target_list, plot_map
+
+
+def is_odd(num):
+    if num % 2:
+        return True
+    else:
+        return False
 
 
 class TargetDetector(object):
-    def __init__(self, n_per, m_per, deltaf, Tsym, carrier_freq):
+    def __init__(self, n_per, m_per, upscale_factor, deltaf, Tsym, carrier_freq):
         self.n_per = n_per
         self.m_per = m_per
         self.deltaf = deltaf
         self.Tsym = Tsym
         self.carrier_freq = carrier_freq
+        self.upscale_factor = upscale_factor
 
     def get_naive_maximum(self, periodgram, interpolation: bool = False, print_estimate: bool = False):
         lightspeed = 3e8
@@ -98,29 +107,107 @@ class TargetDetector(object):
         max_position_interpolated = (interpolated_n, interpolated_m)
         return max_position_interpolated
 
-    def estimation_successive_canc(self, periodgram, false_alarm_prob, max_distance, main_lobes_norm):
-        print("CFAR--------------------------------")
-        (n_per, m_per) = periodgram.shape
-
-        n_max = int(np.ceil((max_distance / 3e8) * 2 * self.deltaf * self.n_per))
-        # k = 3
-
-        noise_periodgram = periodgram[n_per - 4:, :]
+    def get_cfar_threshold(self, periodogram, false_alarm_prob):
+        (n_per, m_per) = periodogram.shape
+        # n_max = int(np.ceil((max_distance / 3e8) * 2 * self.deltaf * self.n_per))
+        k = 5
+        noise_periodgram = periodogram[n_per - k:, :]
 
         # calculate noise variance per bin
         noise_variance_est = np.mean(noise_periodgram)
+        print(f"Estimated Noise variance is: {noise_variance_est}")
 
-        # print(f"Estimated Noise variance is: {noise_variance_est}")
-
-        # noise_variance = 1 / SNR
-        # print(f"Noise variance is: {noise_variance}")
-
-        threshold = - noise_variance_est * np.log(1 - (1 - false_alarm_prob) ** (1 / (n_per/8 * m_per/8)))
+        threshold = - noise_variance_est * np.log(
+            1 - (1 - false_alarm_prob) ** (self.upscale_factor ** 2 / (n_per * m_per)))
         print(f"Threshold is: {threshold}")
+
+        return threshold
+
+    def cfar_estimation(self, periodogram, false_alarm_prob, max_distance, main_lobes_norm):
+        print("CFAR--------------------------------")
+        (n_per, m_per) = periodogram.shape
+
+        threshold = self.get_cfar_threshold(periodogram, false_alarm_prob)
 
         main_lobes = [main_lobes_norm[0] * n_per, main_lobes_norm[1] * m_per]
         print(f"Main lobes are: {main_lobes}")
 
-        target_list = successive_cancellation(periodgram, main_lobes, threshold)
+        target_list, binary_map = successive_cancellation(periodogram, main_lobes, threshold)
 
-        return target_list
+        return target_list, binary_map
+
+    def get_ca_sliding_window(self, l1, l2, ng1, ng2):
+        center_l1 = (l1 - 1) // 2
+        center_l2 = (l2 - 1) // 2
+
+        window = np.ones((l1,l2))
+
+        window[center_l1-ng1:center_l1+ng1+1, center_l2-ng2:center_l2+ng2+1] = 0
+
+        return window
+
+    def ca_cfar_tresholding(self, matrix, sliding_window, false_alarm_prob):
+        sliding_sum = signal.convolve2d(matrix, sliding_window, mode='same')
+        contribution_matrix = signal.convolve2d(np.ones(matrix.shape), sliding_window, mode='same')
+
+        alpha_matrix = (false_alarm_prob ** (np.divide(-1, contribution_matrix))) - 1
+
+        # FORMULA: threshold = alpha * sigma_est, sigma_est = sliding_sum
+        threshold_matrix = np.multiply(sliding_sum, alpha_matrix)
+
+        return threshold_matrix
+
+    def ca_cfar_estimation(self, periodogram, expansion_factor, false_alarm_prob, main_lobes_norm):
+        print("CA-CFAR--------------------------------")
+        (n_per, m_per) = periodogram.shape
+        main_lobes = [main_lobes_norm[0] * n_per, main_lobes_norm[1] * m_per]
+
+        window_length_doppler = int(2 * np.ceil(main_lobes[1]))
+        window_length_distance = int(2 * np.ceil(main_lobes[0]))
+        window_length_doppler += 1
+        window_length_distance += 1
+
+        window_length_distance = 7
+        window_length_doppler = 7
+
+        '''
+        if not is_odd(window_length_doppler):
+            window_length_doppler += 1
+        if not is_odd(window_length_distance):
+            window_length_distance += 1
+        '''
+
+        guard_cell_try = 1
+
+        # guard_cell_length_doppler = int((window_length_doppler + 1) // 2)
+        # guard_cell_length_distance = int((window_length_distance + 1) // 2)
+
+        window = self.get_ca_sliding_window(window_length_distance, window_length_doppler, guard_cell_try,
+                                            guard_cell_try)
+
+        plt.figure("window")
+        plt.pcolormesh(window)
+
+        threshold_matrix = self.ca_cfar_tresholding(periodogram, window, false_alarm_prob)
+
+        line = periodogram[:,7]
+        threshold_line = threshold_matrix[:,7]
+        cfar_threshold = self.get_cfar_threshold(periodogram, false_alarm_prob)
+        cfar_threshold = np.full(line.shape, cfar_threshold)
+        plt.figure("1d thresholding")
+        plt.plot(line)
+        plt.plot(threshold_line)
+        plt.plot(cfar_threshold)
+
+
+        threshold_logical = periodogram > threshold_matrix
+
+        periodogram_only_targets = np.copy(periodogram)
+        periodogram_only_targets[~threshold_logical] = 0
+
+        plt.figure("CA-CFAR")
+        plt.pcolormesh(periodogram_only_targets)
+
+
+        targetlist = []
+        return targetlist
