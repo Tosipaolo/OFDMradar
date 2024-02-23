@@ -6,7 +6,7 @@ class Target:
         self.lightspeed = 3e8
         self.lambda_wv = 10.714e-3  # lamda at 28 GHz
         self.target_delay = 2 * self.target_distance / self.lightspeed
-        self.target_doppler = 2 * self.target_speed / self.lambda_wv
+        self.target_doppler = 2 * self.target_speed / 3e8 * 27.4e9
 
 # Accessing the fields of the instance
 # print("Target RCS:", target_instance.target_rcs)

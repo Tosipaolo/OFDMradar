@@ -157,7 +157,18 @@ class TargetDetector(object):
 
         return threshold_matrix
 
-    def ca_cfar_estimation(self, periodogram, expansion_factor, false_alarm_prob, main_lobes_norm):
+    def smart_ca_cfar_thresholding(self, matrix, sliding_window, false_alarm_prob):
+        sliding_sum = signal.fftconvolve(matrix, sliding_window, mode='same')
+        contribution_matrix = signal.fftconvolve(np.ones(matrix.shape), sliding_window, mode='same')
+
+        alpha_matrix = np.power(false_alarm_prob, np.reciprocal(-contribution_matrix)) - 1
+
+        # FORMULA: threshold = alpha * sigma_est, sigma_est = sliding_sum
+        threshold_matrix = np.multiply(sliding_sum, alpha_matrix)
+
+        return threshold_matrix
+
+    def ca_cfar_estimation(self, periodogram, expansion_factor, false_alarm_prob, main_lobes_norm, smart=0):
         print("CA-CFAR--------------------------------")
         (n_per, m_per) = periodogram.shape
         main_lobes = [main_lobes_norm[0] * n_per, main_lobes_norm[1] * m_per]
@@ -188,7 +199,10 @@ class TargetDetector(object):
         plt.figure("window")
         plt.pcolormesh(window)
 
-        threshold_matrix = self.ca_cfar_tresholding(periodogram, window, false_alarm_prob)
+        if smart == 1:
+            threshold_matrix = self.smart_ca_cfar_thresholding(periodogram, window, false_alarm_prob)
+        else:
+            threshold_matrix = self.ca_cfar_tresholding(periodogram, window, false_alarm_prob)
 
         line = periodogram[:,np.unravel_index(periodogram.argmax(),periodogram.shape)[1]]
         threshold_line = threshold_matrix[:,np.unravel_index(periodogram.argmax(),periodogram.shape)[1]]
